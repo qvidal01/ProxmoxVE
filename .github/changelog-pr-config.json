@@ -10,11 +10,22 @@
     "labels": [
       "update script"
     ],
+    "excludeLabels": [
+      "tools",
+      "core"
+    ],
     "subCategories": [
       {
         "title": "🐞 Bug Fixes",
         "labels": [
           "bugfix"
+        ],
+        "notes": []
+      },
+      {
+        "title": "🔧 Refactor",
+        "labels": [
+          "refactor"
         ],
         "notes": []
       },
@@ -31,11 +42,123 @@
           "breaking change"
         ],
         "notes": []
+      }
+    ]
+  },
+  {
+    "title": "🛠️ Updated Tools",
+    "labels": [
+      "update script",
+      "tools"
+    ],
+    "requireAllLabels": true,
+    "subCategories": [
+      {
+        "title": "� Bug Fixes",
+        "labels": [
+          "bugfix"
+        ],
+        "notes": []
+      },
+      {
+        "title": "�🔧 Refactor",
+        "labels": [
+          "refactor"
+        ],
+        "notes": []
+      },
+      {
+        "title": "✨ New Features",
+        "labels": [
+          "feature"
+        ],
+        "notes": []
+      },
+      {
+        "title": "💥 Breaking Changes",
+        "labels": [
+          "breaking change"
+        ],
+        "notes": []
+      }
+    ]
+  },
+  {
+    "title": "🔧 Core Updates",
+    "labels": [
+      "update script",
+      "core"
+    ],
+    "requireAllLabels": true,
+    "subCategories": [
+      {
+        "title": "🐞 Bug Fixes",
+        "labels": [
+          "bugfix"
+        ],
+        "notes": []
       },
       {
         "title": "🔧 Refactor",
         "labels": [
           "refactor"
+        ],
+        "notes": []
+      },
+      {
+        "title": "✨ New Features",
+        "labels": [
+          "feature"
+        ],
+        "notes": []
+      },
+      {
+        "title": "💥 Breaking Changes",
+        "labels": [
+          "breaking change"
+        ],
+        "notes": []
+      }
+    ]
+  },
+  {
+    "title": "🌐 Website",
+    "labels": [
+      "website"
+    ],
+    "subCategories": [
+      {
+        "title": "� Bug Fixes",
+        "labels": [
+          "bugfix"
+        ],
+        "notes": []
+      },
+      {
+        "title": "� Refactor",
+        "labels": [
+          "refactor"
+        ],
+        "notes": []
+      },
+      {
+        "title": "✨ New Features",
+        "labels": [
+          "feature"
+        ],
+        "notes": []
+      },
+      {
+        "title": "� Breaking Changes",
+        "labels": [
+          "breaking change"
+        ],
+        "notes": []
+      },
+      {
+        "title": "� Script Information",
+        "labels": [
+          "json"
         ],
         "notes": []
       }
@@ -55,6 +178,13 @@
         "notes": []
       },
       {
+        "title": "🔧 Refactor",
+        "labels": [
+          "refactor"
+        ],
+        "notes": []
+      },
+      {
         "title": "✨ New Features",
         "labels": [
           "feature"
@@ -69,7 +199,7 @@
         "notes": []
       },
       {
-        "title": "📡 API",
+        "title": "� API",
         "labels": [
           "api"
         ],
@@ -93,49 +223,6 @@
         "title": "📝 Documentation",
         "labels": [
           "maintenance"
-        ],
-        "notes": []
-      },
-      {
-        "title": "🔧 Refactor",
-        "labels": [
-          "refactor"
-        ],
-        "notes": []
-      }
-    ]
-  },
-  {
-    "title": "🌐 Website",
-    "labels": [
-      "website"
-    ],
-    "subCategories": [
-      {
-        "title": "🐞 Bug Fixes",
-        "labels": [
-          "bugfix"
-        ],
-        "notes": []
-      },
-      {
-        "title": "✨ New Features",
-        "labels": [
-          "feature"
-        ],
-        "notes": []
-      },
-      {
-        "title": "💥 Breaking Changes",
-        "labels": [
-          "breaking change"
-        ],
-        "notes": []
-      },
-      {
-        "title": "📝 Script Information",
-        "labels": [
-          "json"
         ],
         "notes": []
       }

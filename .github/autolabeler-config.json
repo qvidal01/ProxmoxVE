@@ -101,20 +101,11 @@
       "excludeGlobs": []
     }
   ],
-  "addon": [
+  "tools": [
     {
       "fileStatus": null,
       "includeGlobs": [
-        "tools/addon/**"
-      ],
-      "excludeGlobs": []
-    }
-  ],
-  "pve-tool": [
-    {
-      "fileStatus": null,
-      "includeGlobs": [
-        "tools/pve/**"
+        "tools/**"
       ],
       "excludeGlobs": []
     }

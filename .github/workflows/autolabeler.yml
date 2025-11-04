@@ -35,6 +35,7 @@ jobs:
 
             const prNumber = context.payload.pull_request.number;
             const prBody = context.payload.pull_request.body || "";
+            const prAuthor = context.payload.pull_request.user.login;
 
             let labelsToAdd = new Set();
 
@@ -44,6 +45,24 @@ jobs:
               pull_number: prNumber,
             });
             const prFiles = prListFilesResponse.data;
+
+            // Get commits for commit message analysis
+            const { data: commits } = await github.rest.pulls.listCommits({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: prNumber,
+            });
+
+            // Check if this is a first-time contributor
+            const { data: prsByAuthor } = await github.rest.pulls.list({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'all',
+              per_page: 5
+            });
+            const isFirstTimeContributor = !prsByAuthor.some(pr => 
+              pr.user.login === prAuthor && pr.number !== prNumber && pr.merged_at
+            );
 
             for (const [label, rules] of Object.entries(autolabelerConfig)) {
               const shouldAddLabel = prFiles.some((prFile) => {
@@ -57,49 +76,316 @@ jobs:
 
               if (shouldAddLabel) {
                 labelsToAdd.add(label);
-                if (label === "update script") {
+                if (label === "update script" || label === "new script") {
                   for (const prFile of prFiles) {
                     const filename = prFile.filename;
                     if (filename.startsWith("vm/")) labelsToAdd.add("vm");
-                    if (filename.startsWith("tools/addon/")) labelsToAdd.add("addon");
-                    if (filename.startsWith("tools/pve/")) labelsToAdd.add("pve-tool");
+                    if (filename.startsWith("tools/")) labelsToAdd.add("tools");
+                    if (filename.startsWith("misc/")) labelsToAdd.add("core");
                   }
                 }
               }
             }
 
-            if (labelsToAdd.size < 2) {
-              const templateLabelMappings = {
-                "🐞 **Bug fix**": "bugfix",
-                "✨ **New feature**": "feature",
-                "💥 **Breaking change**": "breaking change",
-                "🆕 **New script**": "new script",
-                "🌍 **Website update**": "website", // handled special
-                "🔧 **Refactoring / Code Cleanup**": "refactor",
-                "📝 **Documentation update**": "documentation" // mapped to maintenance
-              };
+            // Feature 2: Analyze commit messages for conventional commits
+            const commitMessages = commits.map(c => c.commit.message).join('\n');
+            const conventionalCommitLabels = [];
 
-              for (const [checkbox, label] of Object.entries(templateLabelMappings)) {
-                const escapedCheckbox = checkbox.replace(/([.*+?^=!:${}()|[\]\/\\])/g, "\\$1");
-                const regex = new RegExp(`- \\[(x|X)\\]\\s*${escapedCheckbox}`, "i");
+            if (/^fix(\(.*?\))?:/im.test(commitMessages)) {
+              conventionalCommitLabels.push("bugfix");
+            }
+            if (/^feat(\(.*?\))?:/im.test(commitMessages)) {
+              conventionalCommitLabels.push("feature");
+            }
+            if (/^refactor(\(.*?\))?:/im.test(commitMessages)) {
+              conventionalCommitLabels.push("refactor");
+            }
+            if (/BREAKING[:\s]CHANGE/i.test(commitMessages) || /^[a-z]+(\(.*?\))?!:/im.test(commitMessages)) {
+              conventionalCommitLabels.push("breaking change");
+            }
 
-                if (regex.test(prBody)) {
-                  if (label === "website") {
-                    const hasJson = prFiles.some((f) => f.filename.startsWith("frontend/public/json/"));
-                    const hasUpdateScript = labelsToAdd.has("update script");
-                    const hasContentLabel = ["bugfix", "feature", "refactor"].some((l) => labelsToAdd.has(l));
+            // Parse PR template for content type labels (bugfix, feature, refactor, breaking change)
+            const templateLabelMappings = {
+              "🐞 **Bug fix**": "bugfix",
+              "✨ **New feature**": "feature",
+              "💥 **Breaking change**": "breaking change",
+              "🆕 **New script**": "new script",
+              "🌍 **Website update**": "website",
+              "🔧 **Refactoring / Code Cleanup**": "refactor",
+              "📝 **Documentation update**": "documentation"
+            };
 
-                    if (!(hasUpdateScript && hasContentLabel)) {
-                      labelsToAdd.add(hasJson ? "json" : "website");
+            const contentLabels = ["bugfix", "feature", "refactor", "breaking change"];
+            const checkedContentLabels = [];
+
+            for (const [checkbox, label] of Object.entries(templateLabelMappings)) {
+              const escapedCheckbox = checkbox.replace(/([.*+?^=!:${}()|[\]\/\\])/g, "\\$1");
+              const regex = new RegExp(`- \\[(x|X)\\]\\s*${escapedCheckbox}`, "i");
+
+              if (regex.test(prBody)) {
+                if (label === "website") {
+                  const hasJson = prFiles.some((f) => f.filename.startsWith("frontend/public/json/"));
+                  labelsToAdd.add(hasJson ? "json" : "website");
+                } else if (label === "documentation") {
+                  labelsToAdd.add("maintenance");
+                } else if (label === "new script") {
+                  labelsToAdd.add("new script");
+                } else if (contentLabels.includes(label)) {
+                  checkedContentLabels.push(label);
+                } else {
+                  labelsToAdd.add(label);
+                }
+              }
+            }
+
+            // Priority system: Combine template checkboxes and conventional commits
+            // Merge both sources
+            const allCheckedLabels = [...new Set([...checkedContentLabels, ...conventionalCommitLabels])];
+
+            // Priority: bugfix > refactor > feature > breaking change
+            if (allCheckedLabels.length > 0) {
+              const priorityOrder = ["bugfix", "refactor", "feature", "breaking change"];
+              const highestPriorityLabel = priorityOrder.find(label => allCheckedLabels.includes(label));
+              if (highestPriorityLabel) {
+                labelsToAdd.add(highestPriorityLabel);
+              }
+            }
+
+            // Feature 3: Add size labels based on changes
+            const totalChanges = prFiles.reduce((sum, file) => sum + file.additions + file.deletions, 0);
+            if (totalChanges <= 10) {
+              labelsToAdd.add("size: XS");
+            } else if (totalChanges <= 50) {
+              labelsToAdd.add("size: S");
+            } else if (totalChanges <= 200) {
+              labelsToAdd.add("size: M");
+            } else if (totalChanges <= 500) {
+              labelsToAdd.add("size: L");
+            } else {
+              labelsToAdd.add("size: XL");
+            }
+
+            // Get current PR labels
+            const { data: currentPR } = await github.rest.pulls.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: prNumber,
+            });
+            const currentLabels = currentPR.labels.map(label => label.name.toLowerCase());
+
+            // Label Cleanup: Remove outdated content labels and size labels
+            const allContentLabels = ["bugfix", "feature", "refactor", "breaking change"];
+            const allSizeLabels = ["size: XS", "size: S", "size: M", "size: L", "size: XL"];
+            const labelsToRemove = [
+              ...allContentLabels.filter(label => currentLabels.includes(label) && !labelsToAdd.has(label)),
+              ...allSizeLabels.filter(label => currentLabels.includes(label.toLowerCase()) && !labelsToAdd.has(label))
+            ];
+
+            for (const label of labelsToRemove) {
+              try {
+                await github.rest.issues.removeLabel({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: prNumber,
+                  name: label,
+                });
+              } catch (error) {
+                // Label might not exist, ignore
+              }
+            }
+
+            // Validation: Check for missing information
+            const warnings = [];
+            const hasUpdateOrNewScript = labelsToAdd.has("update script") || labelsToAdd.has("new script");
+            const hasContentLabel = allContentLabels.some(label => labelsToAdd.has(label));
+
+            if (hasUpdateOrNewScript && !hasContentLabel && !labelsToAdd.has("new script")) {
+              warnings.push("⚠️ **Missing change type**: Please check one of the change type checkboxes (Bug fix, New feature, Refactoring, or Breaking change) in the PR description.");
+            }
+
+            if (labelsToAdd.has("website") && !labelsToAdd.has("json") && prFiles.some(f => f.filename.includes("frontend/"))) {
+              const hasCheckbox = /- \[(x|X)\]\s*🌍 \*\*Website update\*\*/i.test(prBody);
+              if (!hasCheckbox) {
+                warnings.push("⚠️ **Missing checkbox**: Please check the '🌍 Website update' checkbox in the PR description.");
+              }
+            }
+
+            // Feature 5: Documentation check
+            const codeFiles = prFiles.filter(f => /\.(sh|func|go|js|ts|tsx|jsx)$/.test(f.filename));
+            const docFiles = prFiles.filter(f => /\.(md|txt)$/i.test(f.filename) || f.filename.includes('README'));
+
+            if (codeFiles.length > 0 && docFiles.length === 0 && !labelsToAdd.has("refactor") && !labelsToAdd.has("bugfix")) {
+              warnings.push("📚 **Documentation update recommended**: Consider updating documentation for these code changes.");
+            }
+
+            // Feature 6: Related issues detection
+            let relatedIssuesText = "";
+            const scriptFiles = prFiles.filter(f => /\.(sh|func)$/.test(f.filename));
+            if (scriptFiles.length > 0) {
+              const scriptNames = scriptFiles.map(f => {
+                const match = f.filename.match(/([^\/]+)\.(sh|func)$/);
+                return match ? match[1] : null;
+              }).filter(Boolean);
+
+              if (scriptNames.length > 0) {
+                try {
+                  const { data: openIssues } = await github.rest.issues.listForRepo({
+                    owner: context.repo.owner,
+                    repo: context.repo.repo,
+                    state: 'open',
+                    per_page: 100
+                  });
+
+                  const related = [];
+                  for (const scriptName of scriptNames) {
+                    const matchingIssues = openIssues.filter(issue => 
+                      !issue.pull_request && 
+                      (issue.title.toLowerCase().includes(scriptName.toLowerCase()) ||
+                       (issue.body || '').toLowerCase().includes(scriptName.toLowerCase()))
+                    );
+                    related.push(...matchingIssues);
+                  }
+
+                  const uniqueRelated = [...new Map(related.map(i => [i.number, i])).values()];
+                  if (uniqueRelated.length > 0) {
+                    relatedIssuesText = "\n\n## 🔗 Related Issues\n\n";
+                    relatedIssuesText += "This PR may be related to the following open issues:\n";
+                    uniqueRelated.slice(0, 5).forEach(issue => {
+                      relatedIssuesText += `- #${issue.number}: ${issue.title}\n`;
+                    });
+                    if (uniqueRelated.length > 5) {
+                      relatedIssuesText += `- _...and ${uniqueRelated.length - 5} more_\n`;
                     }
-                  } else if (label === "documentation") {
-                    labelsToAdd.add("maintenance");
-                  } else {
-                    labelsToAdd.add(label);
                   }
+                } catch (error) {
+                  console.error("Error fetching related issues:", error);
                 }
               }
             }
+
+            // Generate Changelog Preview
+            let changelogPreview = "## 📝 Changelog Preview\n\n";
+            changelogPreview += "This PR will appear in the changelog as:\n\n";
+
+            const categories = [];
+
+            if (labelsToAdd.has("new script")) {
+              changelogPreview += "### 🆕 New Scripts\n";
+              changelogPreview += `- ${currentPR.title} @${currentPR.user.login} ([#${prNumber}](${currentPR.html_url}))\n\n`;
+            } else {
+              if (labelsToAdd.has("update script")) {
+                if (labelsToAdd.has("tools")) {
+                  categories.push({ name: "🛠️ Updated Tools", label: labelsToAdd });
+                } else if (labelsToAdd.has("core")) {
+                  categories.push({ name: "🔧 Core Updates", label: labelsToAdd });
+                } else {
+                  categories.push({ name: "🚀 Updated Scripts", label: labelsToAdd });
+                }
+              }
+              
+              if (labelsToAdd.has("website") || labelsToAdd.has("json")) {
+                categories.push({ name: "🌐 Website", label: labelsToAdd });
+              }
+              
+              if (labelsToAdd.has("maintenance")) {
+                categories.push({ name: "🧰 Maintenance", label: labelsToAdd });
+              }
+
+              for (const category of categories) {
+                changelogPreview += `### ${category.name}\n`;
+                
+                const subCategoryMap = {
+                  "bugfix": "  - #### 🐞 Bug Fixes",
+                  "refactor": "  - #### 🔧 Refactor",
+                  "feature": "  - #### ✨ New Features",
+                  "breaking change": "  - #### 💥 Breaking Changes"
+                };
+                
+                const matchedSubCat = allContentLabels.find(label => labelsToAdd.has(label));
+                if (matchedSubCat && subCategoryMap[matchedSubCat]) {
+                  changelogPreview += `${subCategoryMap[matchedSubCat]}\n`;
+                }
+                
+                if (labelsToAdd.has("json")) {
+                  changelogPreview += "  - #### 📝 Script Information\n";
+                }
+                
+                changelogPreview += `    - ${currentPR.title} @${currentPR.user.login} ([#${prNumber}](${currentPR.html_url}))\n\n`;
+              }
+
+              if (categories.length === 0) {
+                changelogPreview += "_This PR may not appear in the changelog. Please ensure proper labels are set._\n\n";
+              }
+            }
+
+            // Post comment with warnings and changelog preview
+            if (warnings.length > 0 || changelogPreview || relatedIssuesText || isFirstTimeContributor) {
+              let commentBody = "";
+              
+              // Feature 4: First-time contributor welcome
+              if (isFirstTimeContributor) {
+                commentBody += "## 🎉 Welcome to the Community!\n\n";
+                commentBody += `Thank you **@${prAuthor}** for your first contribution! 🙌\n\n`;
+                commentBody += "A maintainer will review your PR soon. Here are some helpful resources:\n";
+                commentBody += "- [Contributing Guide](https://github.com/community-scripts/ProxmoxVE/blob/main/.github/CONTRIBUTOR_AND_GUIDES/CONTRIBUTING.md)\n";
+                commentBody += "- [Code of Conduct](https://github.com/community-scripts/ProxmoxVE/blob/main/.github/CODE_OF_CONDUCT.md)\n\n";
+                commentBody += "---\n\n";
+              }
+              
+              if (warnings.length > 0) {
+                commentBody += "## ⚠️ Validation Warnings\n\n";
+                commentBody += warnings.join("\n\n") + "\n\n---\n\n";
+              }
+              
+              commentBody += changelogPreview;
+              
+              if (relatedIssuesText) {
+                commentBody += relatedIssuesText;
+              }
+              
+              commentBody += "\n\n---\n";
+              commentBody += `_This is an automated message from the PR labeler bot. PR size: ${Array.from(labelsToAdd).find(l => l.startsWith('size:')) || 'unknown'}_`;
+
+              // Check if we already posted a comment
+              const { data: comments } = await github.rest.issues.listComments({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: prNumber,
+              });
+
+              const botComment = comments.find(comment => 
+                comment.user.login === "github-actions[bot]" && 
+                (comment.body.includes("Changelog Preview") || comment.body.includes("Welcome to the Community"))
+              );
+
+              if (botComment) {
+                // Update existing comment (but keep welcome message if it was there)
+                let updatedBody = commentBody;
+                if (botComment.body.includes("Welcome to the Community") && !isFirstTimeContributor) {
+                  // Preserve welcome message from original comment
+                  const welcomeSection = botComment.body.match(/## 🎉 Welcome to the Community![\s\S]*?---\n\n/);
+                  if (welcomeSection) {
+                    updatedBody = welcomeSection[0] + commentBody;
+                  }
+                }
+                
+                await github.rest.issues.updateComment({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  comment_id: botComment.id,
+                  body: updatedBody,
+                });
+              } else {
+                // Create new comment
+                await github.rest.issues.createComment({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: prNumber,
+                  body: commentBody,
+                });
+              }
+            }
+
             if (labelsToAdd.size === 0) {
               labelsToAdd.add("needs triage");
             }

@@ -67,29 +67,12 @@ jobs:
               const categorizedPRs = changelogConfig.map(obj => ({
                 ...obj,
                 notes: [],
-                subCategories: obj.subCategories ?? (
-                  obj.labels.includes("update script") ? [
-                    { title: "🐞 Bug Fixes", labels: ["bugfix"], notes: [] },
-                    { title: "✨ New Features", labels: ["feature"], notes: [] },
-                    { title: "💥 Breaking Changes", labels: ["breaking change"], notes: [] },
-                    { title: "🔧 Refactor", labels: ["refactor"], notes: [] },
-                  ] :
-                  obj.labels.includes("maintenance") ? [
-                    { title: "🐞 Bug Fixes", labels: ["bugfix"], notes: [] },
-                    { title: "✨ New Features", labels: ["feature"], notes: [] },
-                    { title: "💥 Breaking Changes", labels: ["breaking change"], notes: [] },
-                    { title: "📡 API", labels: ["api"], notes: [] },
-                    { title: "Github", labels: ["github"], notes: [] },
-                    { title: "📝 Documentation", labels: ["maintenance"], notes: [] },
-                    { title: "🔧 Refactor", labels: ["refactor"], notes: [] }
-                  ] :
-                  obj.labels.includes("website") ? [
-                    { title: "🐞 Bug Fixes", labels: ["bugfix"], notes: [] },
-                    { title: "✨ New Features", labels: ["feature"], notes: [] },
-                    { title: "💥 Breaking Changes", labels: ["breaking change"], notes: [] },
-                    { title: "Script Information", labels: ["json"], notes: [] }
-                  ] : []
-                )
+                requireAllLabels: obj.requireAllLabels ?? false,
+                excludeLabels: obj.excludeLabels ?? [],
+                subCategories: obj.subCategories ? obj.subCategories.map(sub => ({
+                  ...sub,
+                  notes: []
+                })) : []
               }));
 
               const latestDateInChangelog = new Date(process.env.LATEST_DATE);
@@ -115,69 +98,92 @@ jobs:
 
               for (const pr of filteredPRs) {
                 const prLabels = pr.labels.map(label => label.name.toLowerCase());
+                let prNote;
+                
                 if (pr.user.login.includes("push-app-to-main[bot]")) {
-
                   const scriptName = pr.title;
-                    try {
-                      const { data: relatedIssues } = await github.rest.issues.listForRepo({
-                        owner: context.repo.owner,
-                        repo: "ProxmoxVED",
-                        state: "all",
-                        labels: ["Started Migration To ProxmoxVE"]
-                      });
+                  try {
+                    const { data: relatedIssues } = await github.rest.issues.listForRepo({
+                      owner: context.repo.owner,
+                      repo: "ProxmoxVED",
+                      state: "all",
+                      labels: ["Started Migration To ProxmoxVE"]
+                    });
 
-                      const matchingIssue = relatedIssues.find(issue =>
-                        issue.title.toLowerCase().includes(scriptName.toLowerCase())
-                      );
-
-                      if (matchingIssue) {
-                        const issueAuthor = matchingIssue.user.login;
-                        const issueAuthorUrl = `https://github.com/${issueAuthor}`;
-                        prNote = `- ${pr.title} [@${issueAuthor}](${issueAuthorUrl}) ([#${pr.number}](${pr.html_url}))`;
-                      }
-                      else {
-                        prNote = `- ${pr.title} ([#${pr.number}](${pr.html_url}))`;
-                      }
-                    } catch (error) {
-                      console.error(`Error fetching related issues: ${error}`);
-                      prNote = `- ${pr.title} ([#${pr.number}](${pr.html_url}))`;
-                    }
-                }else{
-                  prNote = `- ${pr.title} [@${pr.user.login}](https://github.com/${pr.user.login}) ([#${pr.number}](${pr.html_url}))`;
-                }
-
-
-                if (prLabels.includes("new script")) {
-                  const newScriptCategory = categorizedPRs.find(category =>
-                  category.title === "New Scripts" || category.labels.includes("new script"));
-                  if (newScriptCategory) {
-                  newScriptCategory.notes.push(prNote);
-                  }
-                } else {
-
-                  let categorized = false;
-                  const priorityCategories = categorizedPRs.slice();
-                  for (const category of priorityCategories) {
-                  if (categorized) break;
-                  if (category.labels.some(label => prLabels.includes(label))) {
-                    if (category.subCategories && category.subCategories.length > 0) {
-                    const subCategory = category.subCategories.find(sub =>
-                      sub.labels.some(label => prLabels.includes(label))
+                    const matchingIssue = relatedIssues.find(issue =>
+                      issue.title.toLowerCase().includes(scriptName.toLowerCase())
                     );
 
-                    if (subCategory) {
-                      subCategory.notes.push(prNote);
+                    if (matchingIssue) {
+                      const issueAuthor = matchingIssue.user.login;
+                      prNote = `- ${pr.title} @${issueAuthor} ([#${pr.number}](${pr.html_url}))`;
                     } else {
-                      category.notes.push(prNote);
+                      prNote = `- ${pr.title} ([#${pr.number}](${pr.html_url}))`;
                     }
-                    } else {
-                    category.notes.push(prNote);
-                    }
-                    categorized = true;
+                  } catch (error) {
+                    console.error(`Error fetching related issues: ${error}`);
+                    prNote = `- ${pr.title} ([#${pr.number}](${pr.html_url}))`;
                   }
-                  }
+                } else {
+                  prNote = `- ${pr.title} @${pr.user.login} ([#${pr.number}](${pr.html_url}))`;
                 }
 
+                // Handle "new script" separately - always goes to New Scripts category
+                if (prLabels.includes("new script")) {
+                  const newScriptCategory = categorizedPRs.find(category =>
+                    category.title === "🆕 New Scripts" || category.labels.includes("new script")
+                  );
+                  if (newScriptCategory) {
+                    newScriptCategory.notes.push(prNote);
+                  }
+                  continue;
+                }
+
+                // For other PRs, check all applicable categories (can appear in multiple)
+                for (const category of categorizedPRs) {
+                  // Skip "new script" and unlabelled categories
+                  if (category.labels.includes("new script") || category.labels.length === 0) {
+                    continue;
+                  }
+
+                  // Check if PR matches category requirements
+                  let matchesCategory = false;
+                  
+                  if (category.requireAllLabels) {
+                    // All labels must be present
+                    matchesCategory = category.labels.every(label => prLabels.includes(label));
+                  } else {
+                    // At least one label must be present
+                    matchesCategory = category.labels.some(label => prLabels.includes(label));
+                  }
+
+                  // Check exclude labels
+                  if (matchesCategory && category.excludeLabels.length > 0) {
+                    const hasExcludedLabel = category.excludeLabels.some(label => prLabels.includes(label));
+                    if (hasExcludedLabel) {
+                      matchesCategory = false;
+                    }
+                  }
+
+                  if (matchesCategory) {
+                    // Try to find matching subcategory
+                    if (category.subCategories && category.subCategories.length > 0) {
+                      const subCategory = category.subCategories.find(sub =>
+                        sub.labels.some(label => prLabels.includes(label))
+                      );
+
+                      if (subCategory) {
+                        subCategory.notes.push(prNote);
+                      } else {
+                        // No matching subcategory, add to main category
+                        category.notes.push(prNote);
+                      }
+                    } else {
+                      // No subcategories, add to main category
+                      category.notes.push(prNote);
+                    }
+                  }
+                }
               }
 
               return categorizedPRs;

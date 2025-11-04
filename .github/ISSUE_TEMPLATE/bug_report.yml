@@ -11,9 +11,8 @@ body:
         - 🔎 If you encounter `[ERROR] in line 23: exit code *: while executing command "$@" > /dev/null 2>&1`, rerun the script with verbose mode before submitting the issue.  
         - 📜 **Read the script:** Familiarize yourself with the script's content and its purpose. This will help you understand the issue better and provide more relevant information
 
-        Thank you for taking the time to report an issue! Please provide as much detail as possible to help us address the problem efficiently.  
+        Thank you for taking the time to report an issue! Please provide as much detail as possible to help us address the problem efficiently.
 
-     
   - type: input
     id: guidelines
     attributes:
@@ -34,8 +33,7 @@ body:
     id: script_command
     attributes:
       label: 📂 What was the exact command used to execute the script?
-      placeholder: "e.g., bash -c \"$(curl -fsSL https://raw.githubusercontent.com/community-scripts/ProxmoxVE/main/ct/zigbee2mqtt.sh)\" or \"update\""
-    validations:
+      placeholder: 'e.g., bash -c "$(curl -fsSL https://raw.githubusercontent.com/community-scripts/ProxmoxVE/main/ct/zigbee2mqtt.sh)" or "update"'
       required: true
 
   - type: checkboxes
@@ -56,14 +54,15 @@ body:
     attributes:
       label: 🖥️ Which Linux distribution are you using?
       options:
-        - 
+        -
         - Alpine
         - Debian 11
         - Debian 12
         - Debian 13
         - Ubuntu 22.04
         - Ubuntu 24.04
-        - Ubuntu 24.10
+        - Ubuntu 25.04
+        - Other
     validations:
       required: true
 
